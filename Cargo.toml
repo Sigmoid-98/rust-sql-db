@@ -1,6 +1,41 @@
-[package]
+[workspace]
+resolver = "3"
+members = [
+    "crates/sql",
+]
+
+[workspace.package]
 name = "raft-db"
 version = "0.1.0"
 edition = "2024"
 
-[dependencies]
+
+[workspace.dependencies]
+bincode = { version = "2.0", features = ["serde"] }
+clap = { version = "4.5", features = ["cargo", "derive"] }
+config = "0.15"
+crossbeam = { version = "0.8", features = ["crossbeam-channel"] }
+dyn-clone = "1.0"
+fs4 = "0.13"
+hdrhistogram = "7.5"
+itertools = "0.14"
+log = "0.4"
+petname = "2.0"
+rand = "0.8"
+regex = "1.10"
+rustyline = "15.0"
+rustyline-derive = "0.11"
+serde = "1.0"
+serde_bytes = "0.11"
+simplelog = "0.12"
+uuid = { version = "1.8", features = ["serde", "v4"] }
+
+[workspace.dev-dependencies]
+escargot = "0.5"
+goldenscript = "0.7"
+hex = "0.4"
+paste = "1.0"
+serde_json = "1.0"
+tempfile = "3.10"
+test-case = "3.3"
+test_each_file = "0.3"
