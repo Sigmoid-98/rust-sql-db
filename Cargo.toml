@@ -5,7 +5,7 @@ members = [
 ]
 
 [workspace.package]
-name = "raft-db"
+name = "rust-sql-db"
 version = "0.1.0"
 edition = "2024"
 
