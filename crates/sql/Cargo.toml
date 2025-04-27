@@ -6,3 +6,5 @@ edition.workspace = true
 [dependencies]
 dyn-clone = { workspace = true}
 serde = { workspace = true, features = ["derive"] }
+
+common_error = { path = "../common_error" }
