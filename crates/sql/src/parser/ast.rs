@@ -24,7 +24,7 @@ pub enum Statement {
     /// Insert new rows into a table.
     Insert {
         table: String,
-        columns: Option<Vec<Column>>, // columns given in values, using default for rest
+        columns: Option<Vec<String>>, // columns given in values, using default for rest
         values: Vec<Vec<Expression>>, // rows to insert
     },
     /// Update rows in a table.
@@ -35,7 +35,7 @@ pub enum Statement {
     },
     /// Select matching rows.
     Select {
-        select: Vec<(Expression, Option<Expression>)>,
+        select: Vec<(Expression, Option<String>)>,
         from: Vec<From>,
         r#where: Option<Expression>,
         group_by: Vec<Expression>,
@@ -60,11 +60,11 @@ pub struct Column {
     pub name: String,
     pub datatype: DataType,
     pub primary_key: bool,
-    pub nullable: bool,
+    pub nullable: Option<bool>,
     pub default: Option<Expression>,
     pub unique: bool,
     pub index: bool,
-    pub reference: Option<String>,
+    pub references: Option<String>,
 }
 
 /// JOIN types
