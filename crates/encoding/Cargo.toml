@@ -1,0 +1,18 @@
+[package]
+name = "encoding"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+serde.workspace = true
+itertools.workspace = true
+serde_bytes.workspace = true
+
+common_error = { path = "../common_error" }
+sql = { path = "../sql" }
+
+[dev-dependencies]
+paste.workspace = true
