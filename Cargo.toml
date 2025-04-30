@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/common_error",
+    "crates/encoding",
     "crates/sql",
 ]
 
@@ -26,12 +27,12 @@ rand = "0.8"
 regex = "1.10"
 rustyline = "15.0"
 rustyline-derive = "0.11"
-serde = { version = "1.0", features = [] }
+serde = "1.0"
 serde_bytes = "0.11"
 simplelog = "0.12"
 uuid = { version = "1.8", features = ["serde", "v4"] }
 
-[workspace.dev-dependencies]
+# dev-dependencies
 escargot = "0.5"
 goldenscript = "0.7"
 hex = "0.4"
