@@ -1,3 +1,6 @@
+
+use encoding;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -11,6 +14,7 @@ pub struct Table {
     pub columns: Vec<Column>,
 }
 
+impl encoding::Value for Table {}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Column {

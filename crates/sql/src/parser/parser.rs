@@ -1,4 +1,4 @@
-use common_error::{errinput, Result};
+use common_error::{errinput, RaftDBResult};
 use std::iter::Peekable;
 use crate::parser::ast;
 use crate::parser::lexer::{Keyword, Lexer, Token};
@@ -26,7 +26,7 @@ impl Parser<'_> {
 
     /// Parses the input string into an AST statement. The whole string must be
     /// parsed as a single statement, ending with an optional semicolon.
-    pub fn parse(&mut self) -> Result<ast::Statement> {
+    pub fn parse(&mut self) -> RaftDBResult<ast::Statement> {
         let statement = self.parse_statement()?;
         self.next_is(Token::Semicolon);
         if let Some(token) = self.lexer.next().transpose()? {
@@ -36,12 +36,12 @@ impl Parser<'_> {
     }
 
     /// Fetches the next lexer token, or errors if none is found.
-    fn next(&mut self) -> Result<Token> {
+    fn next(&mut self) -> RaftDBResult<Token> {
         self.lexer.next().transpose()?.ok_or_else(|| errinput!("unexpected end of input"))
     }
 
     /// Returns the next identifier, or errors if not found.
-    fn next_ident(&mut self) -> Result<String> {
+    fn next_ident(&mut self) -> RaftDBResult<String> {
         match self.next()? {
             Token::Ident(ident) => Ok(ident),
             token => errinput!("expected identifier, got {token}"),
@@ -78,7 +78,7 @@ impl Parser<'_> {
     }
 
     /// Consumes the next lexer token if it's the expected token, or errors.
-    fn expect(&mut self, expect: Token) -> Result<()> {
+    fn expect(&mut self, expect: Token) -> RaftDBResult<()> {
         let token = self.next()?;
         if token != expect {
             return errinput!("expected token {expect}, found {token}");
@@ -93,12 +93,12 @@ impl Parser<'_> {
     }
 
     /// Peeks the next lexer token if any, but transposes it for convenience.
-    fn peek(&mut self) -> Result<Option<&Token>> {
+    fn peek(&mut self) -> RaftDBResult<Option<&Token>> {
         self.lexer.peek().map(|r| r.as_ref().map_err(|err| err.clone())).transpose()
     }
 
     /// Parses a SQL statement.
-    fn parse_statement(&mut self) -> Result<ast::Statement> {
+    fn parse_statement(&mut self) -> RaftDBResult<ast::Statement> {
         let Some(token) = self.peek()? else { 
             return errinput!("unexpected end of input");
         };
@@ -123,7 +123,7 @@ impl Parser<'_> {
 
 
     /// Parses a BEGIN statement.
-    fn parse_begin(&mut self) -> Result<ast::Statement> {
+    fn parse_begin(&mut self) -> RaftDBResult<ast::Statement> {
         self.expect(Keyword::Begin.into())?;
         self.skip(Keyword::Transaction.into());
 
@@ -150,19 +150,19 @@ impl Parser<'_> {
     }
 
     /// Parses a COMMIT statement.
-    fn parse_commit(&mut self) -> Result<ast::Statement> {
+    fn parse_commit(&mut self) -> RaftDBResult<ast::Statement> {
         self.expect(Keyword::Commit.into())?;
         Ok(ast::Statement::Commit)
     }
 
     /// Parses a ROLLBACK statement.
-    fn parse_rollback(&mut self) -> Result<ast::Statement> {
+    fn parse_rollback(&mut self) -> RaftDBResult<ast::Statement> {
         self.expect(Keyword::Rollback.into())?;
         Ok(ast::Statement::Rollback)
     }
 
     /// Parses an EXPLAIN statement.
-    fn parse_explain(&mut self) -> Result<ast::Statement> {
+    fn parse_explain(&mut self) -> RaftDBResult<ast::Statement> {
         self.expect(Keyword::Explain.into())?;
         if self.next_is(Keyword::Explain.into()) {
             return errinput!("cannot nest EXPLAIN statements");
@@ -171,7 +171,7 @@ impl Parser<'_> {
     }
 
     /// Parses a CREATE TABLE statement.
-    fn parse_create_table(&mut self) -> Result<ast::Statement> {
+    fn parse_create_table(&mut self) -> RaftDBResult<ast::Statement> {
         self.expect(Keyword::Create.into())?;
         self.expect(Keyword::Table.into())?;
         let name = self.next_ident()?;
@@ -188,7 +188,7 @@ impl Parser<'_> {
     }
 
     /// Parses a CREATE TABLE column definition.
-    fn parse_create_table_column(&mut self) -> Result<ast::Column> {
+    fn parse_create_table_column(&mut self) -> RaftDBResult<ast::Column> {
         let name = self.next_ident()?;
         let datatype = match self.next()? {
             Token::Keyword(Keyword::Bool | Keyword::Boolean) => DataType::Boolean,
@@ -237,7 +237,7 @@ impl Parser<'_> {
     }
 
     /// Parses a DROP TABLE statement.
-    fn parse_drop_table(&mut self) -> Result<ast::Statement> {
+    fn parse_drop_table(&mut self) -> RaftDBResult<ast::Statement> {
         self.expect(Token::Keyword(Keyword::Drop))?;
         self.expect(Token::Keyword(Keyword::Table))?;
         let mut if_exists = false;
@@ -250,7 +250,7 @@ impl Parser<'_> {
     }
 
     /// Parses a DELETE statement.
-    fn parse_delete(&mut self) -> Result<ast::Statement> {
+    fn parse_delete(&mut self) -> RaftDBResult<ast::Statement> {
         self.expect(Keyword::Delete.into())?;
         self.expect(Keyword::From.into())?;
         let table = self.next_ident()?;
@@ -258,7 +258,7 @@ impl Parser<'_> {
     }
 
     /// Parses an INSERT statement.
-    fn parse_insert(&mut self) -> Result<ast::Statement> {
+    fn parse_insert(&mut self) -> RaftDBResult<ast::Statement> {
         self.expect(Keyword::Insert.into())?;
         self.expect(Keyword::Into.into())?;
         let table = self.next_ident()?;
@@ -298,7 +298,7 @@ impl Parser<'_> {
     }
 
     /// Parses an UPDATE statement.
-    fn parse_update(&mut self) -> Result<ast::Statement> {
+    fn parse_update(&mut self) -> RaftDBResult<ast::Statement> {
         self.expect(Keyword::Update.into())?;
         let table = self.next_ident()?;
         self.expect(Keyword::Set.into())?;
@@ -321,7 +321,7 @@ impl Parser<'_> {
     }
 
     /// Parses a SELECT statement.
-    fn parse_select(&mut self) -> Result<ast::Statement> {
+    fn parse_select(&mut self) -> RaftDBResult<ast::Statement> {
         Ok(ast::Statement::Select {
             select: self.parse_select_clause()?,
             from: self.parse_from_clause()?,
@@ -341,7 +341,7 @@ impl Parser<'_> {
     }
 
     /// Parses a SELECT clause, if present.
-    fn parse_select_clause(&mut self) -> Result<Vec<(ast::Expression, Option<String>)>> {
+    fn parse_select_clause(&mut self) -> RaftDBResult<Vec<(ast::Expression, Option<String>)>> {
         if !self.next_is(Keyword::Select.into()) {
             return Ok(Vec::new());
         }
@@ -364,7 +364,7 @@ impl Parser<'_> {
     }
 
     /// Parses a FROM clause, if present.
-    fn parse_from_clause(&mut self) -> Result<Vec<ast::From>> {
+    fn parse_from_clause(&mut self) -> RaftDBResult<Vec<ast::From>> {
         if !self.next_is(Keyword::From.into()) {
             return Ok(Vec::new());
         }
@@ -390,7 +390,7 @@ impl Parser<'_> {
     }
 
     // Parses a FROM table.
-    fn parse_from_table(&mut self) -> Result<ast::From> {
+    fn parse_from_table(&mut self) -> RaftDBResult<ast::From> {
         let name = self.next_ident()?;
         let mut alias = None;
         if self.next_is(Keyword::As.into()) || matches!(self.peek()?, Some(Token::Ident(_))) {
@@ -400,7 +400,7 @@ impl Parser<'_> {
     }
 
     // Parses a FROM JOIN type, if present.
-    fn parse_from_join(&mut self) -> Result<Option<ast::JoinType>> {
+    fn parse_from_join(&mut self) -> RaftDBResult<Option<ast::JoinType>> {
         if self.next_is(Keyword::Join.into()) {
             return Ok(Some(ast::JoinType::Inner));
         }
@@ -426,7 +426,7 @@ impl Parser<'_> {
     }
 
     /// Parses a WHERE clause, if present.
-    fn parse_where_clause(&mut self) -> Result<Option<ast::Expression>> {
+    fn parse_where_clause(&mut self) -> RaftDBResult<Option<ast::Expression>> {
         if !self.next_is(Keyword::Where.into()) {
             return Ok(None);
         }
@@ -434,7 +434,7 @@ impl Parser<'_> {
     }
 
     /// Parses a GROUP BY clause, if present.
-    fn parse_group_by_clause(&mut self) -> Result<Vec<ast::Expression>> {
+    fn parse_group_by_clause(&mut self) -> RaftDBResult<Vec<ast::Expression>> {
         if !self.next_is(Keyword::Group.into()) {
             return Ok(Vec::new());
         }
@@ -450,7 +450,7 @@ impl Parser<'_> {
     }
 
     /// Parses a HAVING clause, if present.
-    fn parse_having_clause(&mut self) -> Result<Option<ast::Expression>> {
+    fn parse_having_clause(&mut self) -> RaftDBResult<Option<ast::Expression>> {
         if !self.next_is(Keyword::Having.into()) {
             return Ok(None);
         }
@@ -458,7 +458,7 @@ impl Parser<'_> {
     }
 
     /// Parses an ORDER BY clause, if present.
-    fn parse_order_by_clause(&mut self) -> Result<Vec<(ast::Expression, ast::Direction)>> {
+    fn parse_order_by_clause(&mut self) -> RaftDBResult<Vec<(ast::Expression, ast::Direction)>> {
         if !self.next_is(Keyword::Order.into()) {
             return Ok(Vec::new());
         }
@@ -484,12 +484,12 @@ impl Parser<'_> {
     /// Parses an expression consisting of at least one atom operated on by any
     /// number of operators, using the precedence climbing algorithm.
     ///
-    pub fn parse_expression(&mut self) -> Result<ast::Expression> {
+    pub fn parse_expression(&mut self) -> RaftDBResult<ast::Expression> {
         self.parse_expression_at(0)
     }
 
     /// Parses an expression at the given minimum precedence.
-    fn parse_expression_at(&mut self, min_precedence: Precedence) -> Result<ast::Expression> {
+    fn parse_expression_at(&mut self, min_precedence: Precedence) -> RaftDBResult<ast::Expression> {
         // If there is a prefix operator, parse it and its right-hand operand.
         // Otherwise, parse the left-hand atom.
         let mut lhs = if let Some(prefix) = self.parse_prefix_operator(min_precedence) {
@@ -522,7 +522,7 @@ impl Parser<'_> {
     /// * A column name.
     /// * A function call.
     /// * A parenthesized expression.
-    fn parse_expression_atom(&mut self) -> Result<ast::Expression> {
+    fn parse_expression_atom(&mut self) -> RaftDBResult<ast::Expression> {
         Ok(match self.next()? {
             // All columns.
             Token::Asterisk => ast::Expression::All,
@@ -614,7 +614,7 @@ impl Parser<'_> {
     fn parse_postfix_operator(
         &mut self,
         min_precedence: Precedence,
-    ) -> Result<Option<PostfixOperator>> {
+    ) -> RaftDBResult<Option<PostfixOperator>> {
         // Handle IS (NOT) NULL/NAN separately, since it's multiple tokens.
         if let Some(Token::Keyword(Keyword::Is)) = self.peek()? {
             // We can't consume tokens unless the precedence is satisfied, so we

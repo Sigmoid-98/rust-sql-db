@@ -7,4 +7,5 @@ edition.workspace = true
 dyn-clone = { workspace = true}
 serde = { workspace = true, features = ["derive"] }
 
-common_error = { path = "../common_error" }
+common_error = { workspace = true }
+encoding = { workspace = true }

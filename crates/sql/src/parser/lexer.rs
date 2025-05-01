@@ -1,7 +1,7 @@
 use std::iter::{Peekable};
 use std::str::Chars;
 
-use common_error::Result;
+use common_error::RaftDBResult;
 use common_error::errinput;
 
 /// The lexer (lexical analyzer) preprocesses raw SQL strings into a sequence of
@@ -103,9 +103,9 @@ impl From<Keyword> for Token {
 }
 
 impl Iterator for Lexer<'_> {
-    type Item = Result<Token>;
+    type Item = RaftDBResult<Token>;
 
-    fn next(&mut self) -> Option<Result<Token>> {
+    fn next(&mut self) -> Option<RaftDBResult<Token>> {
         match self.scan() {
             Ok(Some(token)) => Some(Ok(token)),
             // If there's any remaining chars, the lexer didn't recognize them.
@@ -142,7 +142,7 @@ impl<'a> Lexer<'a> {
     }
 
     /// Scans the next token, if any.
-    fn scan(&mut self) -> Result<Option<Token>> {
+    fn scan(&mut self) -> RaftDBResult<Option<Token>> {
         // Ignore whitespace.
         self.skip_whitespace();
         // The first character tells us the token type.
@@ -174,7 +174,7 @@ impl<'a> Lexer<'a> {
     }
 
     /// Scans the next quoted identifier, if any. Case is preserved.
-    fn scan_ident_quoted(&mut self) -> Result<Option<Token>> {
+    fn scan_ident_quoted(&mut self) -> RaftDBResult<Option<Token>> {
         if !self.next_is('"') {
             return Ok(None);
         }
@@ -218,7 +218,7 @@ impl<'a> Lexer<'a> {
     }
 
     /// Scans the next quoted string literal, if any.
-    fn scan_string(&mut self) -> Result<Option<Token>> {
+    fn scan_string(&mut self) -> RaftDBResult<Option<Token>> {
         if !self.next_is('\'') { 
             return Ok(None);
         }
