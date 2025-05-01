@@ -7,12 +7,14 @@ edition.workspace = true
 doctest = false
 
 [dependencies]
+bincode.workspace = true
 serde.workspace = true
 itertools.workspace = true
 serde_bytes.workspace = true
 
-common_error = { path = "../common_error" }
-sql = { path = "../sql" }
+common_error = { workspace = true }
+sql = { workspace = true }
 
 [dev-dependencies]
 paste.workspace = true
+hex.workspace = true
