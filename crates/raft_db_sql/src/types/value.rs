@@ -1,16 +1,15 @@
-use std::borrow::Cow;
-use common_error::{errdata, RaftDBError, RaftDBResult, errinput};
+use raft_db_common::{RaftDBError, RaftDBResult, errdata, errinput};
+use dyn_clone::DynClone;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::hash::Hash;
-use dyn_clone::DynClone;
-use crate::parser::ast;
 
 /// A primitive SQL value.
 ///
-/// For simplicity, only a handful of representative scalar types are supported,
-/// no compound types or more compact variants.
+/// For simplicity, only a handful of representative scalar sql_types are supported,
+/// no compound sql_types or more compact variants.
 ///
 /// In SQL, neither Null nor floating point NaN are considered equal to
 /// themselves (they are unknown values). However, in code, we consider them
@@ -35,7 +34,7 @@ pub enum Value {
     String(String),
 }
 
-// todo impl encoding::Value for Value
+// todo impl raft_db_encoding::Value for Value
 
 // In code, consider Null and NaN equal, so that we can detect and process these
 // values (e.g. in index lookups, aggregation groups, etc). SQL expressions
@@ -251,7 +250,9 @@ impl Value {
                     None => return errinput!("integer overflow"),
                 }
             }
-            (Self::Integer(lhs), Self::Integer(rhs)) => Self::Float((*lhs as f64).powf(*rhs as f64)),
+            (Self::Integer(lhs), Self::Integer(rhs)) => {
+                Self::Float((*lhs as f64).powf(*rhs as f64))
+            }
             (Self::Integer(lhs), Self::Float(rhs)) => Self::Float((*lhs as f64).powf(*rhs)),
             (Self::Float(lhs), Self::Integer(rhs)) => Self::Float((lhs).powi(*rhs as i32)),
             (Self::Float(lhs), Self::Float(rhs)) => Self::Float((lhs).powf(*rhs)),
@@ -339,7 +340,7 @@ impl Value {
     }
 }
 
-
+/// A primitive data type.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Serialize, Deserialize)]
 pub enum DataType {
     Boolean,
@@ -359,7 +360,6 @@ impl Display for DataType {
     }
 }
 
-
 /// A row of values.
 pub type Row = Vec<Value>;
 
@@ -375,7 +375,6 @@ pub trait RowIterator: Iterator<Item = RaftDBResult<Row>> + DynClone {}
 impl<I: Iterator<Item = RaftDBResult<Row>> + DynClone> RowIterator for I {}
 
 dyn_clone::clone_trait_object!(RowIterator);
-
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Label {
@@ -409,18 +408,6 @@ impl Label {
         match self {
             Self::Qualified(_, column) | Self::Unqualified(column) => column.as_str(),
             Self::None => "?",
-        }
-    }
-}
-
-
-impl From<Label> for ast::Expression {
-    /// Builds an ast::Expression::Column for a label. Can't be None.
-    fn from(label: Label) -> Self {
-        match label {
-            Label::Qualified(table, column) => ast::Expression::Column(Some(table), column),
-            Label::Unqualified(column) => ast::Expression::Column(None, column),
-            Label::None => panic!("can't convert None label to AST expression"), // shouldn't happen
         }
     }
 }

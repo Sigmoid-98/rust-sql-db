@@ -10,7 +10,7 @@
 //! The encoding is not self-describing: the caller must provide a concrete type
 //! to decode into, and the binary key must conform to its structure.
 //!
-//! Keycode supports a subset of primitive data types, encoded as follows:
+//! Keycode supports a subset of primitive data sql_types, encoded as follows:
 //!
 //! * [`bool`]: `0x00` for `false`, `0x01` for `true`.
 //! * [`u64`]: big-endian binary representation.
@@ -20,7 +20,7 @@
 //! * [`String`]: like [`Vec<u8>`].
 //! * Sequences: concatenation of contained elements, with no other structure.
 //! * Enum: the variant's index as [`u8`], then the content sequence.
-//! * [`crate::sql::types::Value`]: like any other enum.
+//! * [`crate::sql::sql_types::Value`]: like any other enum.
 //!
 //! The canonical key representation is an enum. For example:
 //!
@@ -46,8 +46,8 @@ use serde::de::{
 use serde::Deserialize;
 use serde::ser::{Impossible, Serialize};
 
-use common_error::errdata;
-use common_error::{RaftDBError, RaftDBResult};
+use raft_db_common::errdata;
+use raft_db_common::{RaftDBError, RaftDBResult};
 
 /// Serializes a key to a binary Keycode representation.
 ///
@@ -710,7 +710,7 @@ mod tests {
     use serde_bytes::ByteBuf;
 
     use super::*;
-    use sql::types::Value;
+    use raft_db_sql::types::Value;
     
     #[derive(Debug, PartialEq, Serialize, Deserialize)]
     enum Key<'a> {

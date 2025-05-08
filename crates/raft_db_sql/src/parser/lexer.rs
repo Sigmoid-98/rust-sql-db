@@ -1,12 +1,12 @@
 use std::iter::{Peekable};
 use std::str::Chars;
 
-use common_error::RaftDBResult;
-use common_error::errinput;
+use raft_db_common::RaftDBResult;
+use raft_db_common::errinput;
 
 /// The lexer (lexical analyzer) preprocesses raw SQL strings into a sequence of
 /// lexical tokens (e.g. keyword, number, string, etc), which are passed on to
-/// the SQL parser. In doing so, it strips away basic syntactic noise such as
+/// the SQL sql_parser. In doing so, it strips away basic syntactic noise such as
 /// whitespace, case, and quotes, and performs initial symbol validation.
 pub struct Lexer<'a> {
     chars: Peekable<Chars<'a>>,
@@ -170,7 +170,7 @@ impl<'a> Lexer<'a> {
             Some(k) => Some(Token::Keyword(k)),
             None => Some(Token::Ident(name)),
         }
-        
+
     }
 
     /// Scans the next quoted identifier, if any. Case is preserved.
@@ -198,7 +198,7 @@ impl<'a> Lexer<'a> {
         while let Some(c) = self.next_if(|c| c.is_ascii_digit()) {
             number.push(c)
         }
-        if self.next_is('.') { 
+        if self.next_is('.') {
             number.push('.');
             while let Some(dec) = self.next_if(|c| c.is_ascii_digit()) {
                 number.push(dec)
@@ -219,7 +219,7 @@ impl<'a> Lexer<'a> {
 
     /// Scans the next quoted string literal, if any.
     fn scan_string(&mut self) -> RaftDBResult<Option<Token>> {
-        if !self.next_is('\'') { 
+        if !self.next_is('\'') {
             return Ok(None);
         }
         let mut string = String::new();
@@ -234,11 +234,11 @@ impl<'a> Lexer<'a> {
         }
         Ok(Some(Token::String(string)))
     }
-    
+
     /// Scans the next symbol token, if any.
     fn scan_symbol(&mut self) -> Option<Token> {
         let mut token = self.next_if_map(|c| {
-            Some(match c { 
+            Some(match c {
                 '.' => Token::Period,
                 '=' => Token::Equal,
                 '>' => Token::GreaterThan,
@@ -258,7 +258,7 @@ impl<'a> Lexer<'a> {
                 _ => return None,
             })
         })?;
-        
+
         // Handle two-character tokens, e.g. !=.
         token = match token {
             Token::Exclamation if self.next_is('=') => Token::NotEqual,
@@ -267,10 +267,10 @@ impl<'a> Lexer<'a> {
             Token::LessThan if self.next_is('>') => Token::LessOrGreaterThan,
             token => token,
         };
-        
+
         Some(token)
     }
-    
+
     fn skip_whitespace(&mut self) {
         while self.next_if(|c| c.is_whitespace()).is_some() {
         }

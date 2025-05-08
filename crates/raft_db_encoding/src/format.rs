@@ -3,6 +3,7 @@
 
 use std::marker::PhantomData;
 use itertools::Itertools;
+use regex::Regex;
 
 /// Formats encoded keys and values.
 pub trait Formatter {
@@ -85,12 +86,16 @@ pub struct SQL;
 
 impl SQL {
     /// Formats a list of SQL values.
-    fn values(values: impl IntoIterator<Item = sql::types::Value>) -> String {
+    fn values(values: impl IntoIterator<Item = raft_db_sql::types::Value>) -> String {
         values.into_iter().join(",")
     }
 
     /// Formats a table schema.
-    // fn schema(table: sql::types::)
+    fn schema(table: raft_db_sql::types::Table) -> String {
+        // Put it all on  asingle line.
+        let re = Regex::new(r#"\n\s*"#).expect("invalid regex");
+        re.replace_all(&table.to_string(), " ").into_owned()
+    }
 }
 
 

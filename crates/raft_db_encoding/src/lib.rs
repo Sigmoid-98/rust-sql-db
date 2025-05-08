@@ -12,7 +12,7 @@ use std::hash::Hash;
 use std::io::{Read, Write};
 use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
-use common_error::RaftDBResult;
+use raft_db_common::RaftDBResult;
 
 /// Adds automatic Keycode encode/decode methods to key enums. These are used
 /// as keys in the key/value store.
@@ -33,7 +33,7 @@ pub trait Key<'de>: Serialize + Deserialize<'de> {
     }
 }
 
-/// Adds automatic Bincode encode/decode methods to value types. These are used
+/// Adds automatic Bincode encode/decode methods to value sql_types. These are used
 /// for values in key/value storage engines, and also for e.g. network protocol
 /// messages and other values.
 pub trait Value: Serialize + DeserializeOwned {
@@ -64,7 +64,7 @@ pub trait Value: Serialize + DeserializeOwned {
     }
 }
 
-/// Blanket implementations for various types wrapping a value type.
+/// Blanket implementations for various sql_types wrapping a value type.
 impl<V: Value> Value for Option<V> {}
 impl<V: Value> Value for RaftDBResult<V> {}
 impl<V: Value> Value for Vec<V> {}

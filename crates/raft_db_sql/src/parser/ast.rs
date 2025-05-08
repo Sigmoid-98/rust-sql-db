@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
-use crate::types::{DataType};
+use crate::types::{DataType, Label};
 
 /// The statement is the root node of the Abstract Syntax Tree, and describes
 /// the syntactic structure of a SQL query. It is built from a raw SQL string by
-/// the parser, and passed on to the planner which validates it and builds an
+/// the sql_parser, and passed on to the planner which validates it and builds an
 /// execution plan from it.
 #[derive(Debug)]
 pub enum Statement {
@@ -67,7 +67,7 @@ pub struct Column {
     pub references: Option<String>,
 }
 
-/// JOIN types
+/// JOIN sql_types
 #[derive(Debug, PartialEq)]
 pub enum JoinType {
     Cross,
@@ -127,22 +127,33 @@ impl core::convert::From<Operator> for Box<Expression> {
     }
 }
 
+impl core::convert::From<Label> for Expression {
+    /// Builds an ast::Expression::Column for a label. Can't be None.
+    fn from(label: Label) -> Self {
+        match label {
+            Label::Qualified(table, column) => Expression::Column(Some(table), column),
+            Label::Unqualified(column) => Expression::Column(None, column),
+            Label::None => panic!("can't convert None label to AST expression"), // shouldn't happen
+        }
+    }
+}
+
 impl Expression {
     /// Walks the expression tree depth-first, calling a closure for every node.
     /// Halts and returns false if the closure returns false.
     pub fn walk(&self, visitor: &mut impl FnMut(&Expression) -> bool) -> bool {
-        if !visitor(self) { 
+        if !visitor(self) {
             return false;
         }
-        
+
         match self {
             | Self::All
-            | Self::Column(_, _) 
+            | Self::Column(_, _)
             | Self::Literal(_) => true,
-            
+
             | Self::Function(_, exprs) => exprs.iter().any(|expr| expr.walk(visitor)),
-            
-            | Self::Operator(Operator::Add(lhs, rhs)) 
+
+            | Self::Operator(Operator::Add(lhs, rhs))
             | Self::Operator(Operator::And(lhs, rhs))
             | Self::Operator(Operator::Divide(lhs, rhs))
             | Self::Operator(Operator::Equal(lhs, rhs))
@@ -158,7 +169,7 @@ impl Expression {
             | Self::Operator(Operator::Remainder(lhs, rhs))
             | Self::Operator(Operator::Subtract(lhs, rhs))
             => lhs.walk(visitor) && rhs.walk(visitor),
-            
+
             | Self::Operator(Operator::Factorial(expr))
             | Self::Operator(Operator::Identity(expr))
             | Self::Operator(Operator::Is(expr, _))
@@ -181,7 +192,7 @@ impl Expression {
             c.push(self.clone());
             return;
         }
-        
+
         match self {
             | Self::All
             | Self::Column(_, _)
@@ -216,7 +227,7 @@ impl Expression {
             | Self::Operator(Operator::Not(expr))
             => expr.collect(visitor, c),
         }
-    } 
+    }
 }
 
 

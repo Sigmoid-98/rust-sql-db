@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
-use common_error::{RaftDBError, RaftDBResult};
+use raft_db_common::{RaftDBError, RaftDBResult};
 
 /// Use the standard Bincode configuration.
 const CONFIG: bincode::config::Configuration = bincode::config::standard();

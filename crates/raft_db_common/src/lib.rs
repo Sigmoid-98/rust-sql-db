@@ -1,3 +1,5 @@
+mod error;
+
 use std::fmt::Display;
 use serde::{Deserialize, Serialize};
 
@@ -24,7 +26,7 @@ pub enum RaftDBError {
     Abort,
     /// Invalid data, typically decoding errors or unexpected internal values.
     InvalidData(String),
-    /// Invalid user input, typically parser or query errors.
+    /// Invalid user input, typically sql_parser or query errors.
     InvalidInput(String),
     /// An IO error.
     IO(String),

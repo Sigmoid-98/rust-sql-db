@@ -112,20 +112,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "common_error"
-version = "0.1.0"
-dependencies = [
- "bincode",
- "config",
- "crossbeam",
- "hdrhistogram",
- "log",
- "regex",
- "rustyline",
- "serde",
-]
-
-[[package]]
 name = "config"
 version = "0.15.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -293,19 +279,6 @@ name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
-
-[[package]]
-name = "encoding"
-version = "0.1.0"
-dependencies = [
- "bincode",
- "common_error",
- "hex",
- "itertools",
- "paste",
- "serde",
- "serde_bytes",
-]
 
 [[package]]
 name = "encoding_rs"
@@ -662,6 +635,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "raft_db_common"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "config",
+ "crossbeam",
+ "hdrhistogram",
+ "log",
+ "regex",
+ "rustyline",
+ "serde",
+]
+
+[[package]]
+name = "raft_db_encoding"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "hex",
+ "itertools",
+ "paste",
+ "raft_db_common",
+ "raft_db_sql",
+ "regex",
+ "serde",
+ "serde_bytes",
+]
+
+[[package]]
+name = "raft_db_sql"
+version = "0.1.0"
+dependencies = [
+ "dyn-clone",
+ "raft_db_common",
+ "serde",
+]
+
+[[package]]
 name = "regex"
 version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -820,16 +831,6 @@ name = "smallvec"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8917285742e9f3e1683f0a9c4e6b57960b7314d0b08d30d1ecd426713ee2eee9"
-
-[[package]]
-name = "sql"
-version = "0.1.0"
-dependencies = [
- "common_error",
- "dyn-clone",
- "encoding",
- "serde",
-]
 
 [[package]]
 name = "syn"

@@ -1,10 +1,10 @@
-use common_error::{errinput, RaftDBResult};
-use std::iter::Peekable;
-use crate::parser::ast;
-use crate::parser::lexer::{Keyword, Lexer, Token};
+use super::ast;
+use super::lexer::{Keyword, Lexer, Token};
 use crate::types::DataType;
+use raft_db_common::{RaftDBResult, errinput};
+use std::iter::Peekable;
 
-/// The SQL parser takes tokens from the lexer and parses the SQL syntax into an
+/// The SQL sql_parser takes tokens from the lexer and parses the SQL syntax into an
 /// Abstract Syntax Tree (AST). This nested structure represents the syntactic
 /// structure of a SQL query (e.g. the SELECT and FROM clauses, values,
 /// arithmetic expressions, etc.). However, it only ensures the syntax is
@@ -16,12 +16,9 @@ pub struct Parser<'a> {
 
 // notice! using Implicit lifetime annotation may cause compiler cannot infer lifetime Using "Self"
 impl Parser<'_> {
-
-    /// Creates a new parser for the given raw SQL string.
+    /// Creates a new sql_parser for the given raw SQL string.
     pub fn new(statement: &str) -> Parser {
-        Parser {
-            lexer: Lexer::new(statement).peekable(),
-        }
+        Parser { lexer: Lexer::new(statement).peekable() }
     }
 
     /// Parses the input string into an AST statement. The whole string must be
@@ -58,7 +55,7 @@ impl Parser<'_> {
     /// closure returns Some.
     fn next_if_map<T>(&mut self, f: impl Fn(&Token) -> Option<T>) -> Option<T> {
         let out = self.peek().unwrap_or(None).map(f);
-        if out.is_some() { 
+        if out.is_some() {
             self.next().ok();
         }
         out?
@@ -99,10 +96,10 @@ impl Parser<'_> {
 
     /// Parses a SQL statement.
     fn parse_statement(&mut self) -> RaftDBResult<ast::Statement> {
-        let Some(token) = self.peek()? else { 
+        let Some(token) = self.peek()? else {
             return errinput!("unexpected end of input");
         };
-        
+
         match token {
             Token::Keyword(Keyword::Begin) => self.parse_begin(),
             Token::Keyword(Keyword::Commit) => self.parse_commit(),
@@ -120,7 +117,6 @@ impl Parser<'_> {
             token => errinput!("unexpected token {token}"),
         }
     }
-
 
     /// Parses a BEGIN statement.
     fn parse_begin(&mut self) -> RaftDBResult<ast::Statement> {
@@ -666,10 +662,8 @@ impl PrefixOperator {
     /// The operator precedence.
     fn precedence(&self) -> Precedence {
         match self {
-            | Self::Minus 
-            | Self::Plus 
-            => 10,
-            Self::Not => 3
+            Self::Minus | Self::Plus => 10,
+            Self::Not => 3,
         }
     }
 
@@ -733,27 +727,22 @@ impl InfixOperator {
         match self {
             Self::Or => 1,
             Self::And => 2,
-            
-            | Self::Equal
-            | Self::NotEqual
-            | Self::Like => 4,
 
-            | Self::GreaterThan
+            Self::Equal | Self::NotEqual | Self::Like => 4,
+
+            Self::GreaterThan
             | Self::GreaterThanOrEqual
             | Self::LessThan
             | Self::LessThanOrEqual => 5,
-            
-            | Self::Add
-            | Self::Subtract => 6,
 
-            | Self::Multiply
-            | Self::Divide
-            | Self::Remainder => 7,
+            Self::Add | Self::Subtract => 6,
+
+            Self::Multiply | Self::Divide | Self::Remainder => 7,
 
             Self::Exponentiate => 8,
         }
     }
-    
+
     /// The operator associativity.
     fn associativity(&self) -> Precedence {
         match self {
@@ -799,10 +788,9 @@ impl PostfixOperator {
     /// The operator precedence.
     fn precedence(&self) -> Precedence {
         match self {
-            | Self::Is(_)
-            | Self::IsNot(_) => 4,
-            
-            Self::Factorial => 9
+            Self::Is(_) | Self::IsNot(_) => 4,
+
+            Self::Factorial => 9,
         }
     }
 
@@ -812,7 +800,9 @@ impl PostfixOperator {
         match self {
             Self::Factorial => ast::Operator::Factorial(lhs).into(),
             Self::Is(v) => ast::Operator::Is(lhs, v).into(),
-            PostfixOperator::IsNot(v) => ast::Operator::Not(ast::Operator::Is(lhs, v).into()).into(),
+            PostfixOperator::IsNot(v) => {
+                ast::Operator::Not(ast::Operator::Is(lhs, v).into()).into()
+            }
         }
     }
 }

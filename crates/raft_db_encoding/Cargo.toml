@@ -1,5 +1,5 @@
 [package]
-name = "encoding"
+name = "raft_db_encoding"
 version.workspace = true
 edition.workspace = true
 
@@ -7,13 +7,14 @@ edition.workspace = true
 doctest = false
 
 [dependencies]
+raft_db_common = { workspace = true }
+raft_db_sql = { workspace = true }
+
 bincode.workspace = true
 serde.workspace = true
 itertools.workspace = true
 serde_bytes.workspace = true
-
-common_error = { workspace = true }
-sql = { workspace = true }
+regex = { workspace = true }
 
 [dev-dependencies]
 paste.workspace = true

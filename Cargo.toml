@@ -1,9 +1,9 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/common_error",
-    "crates/encoding",
-    "crates/sql",
+    "crates/raft_db_common",
+    "crates/raft_db_sql",
+    "crates/raft_db_encoding",
 ]
 
 [workspace.package]
@@ -42,7 +42,6 @@ tempfile = "3.10"
 test-case = "3.3"
 test_each_file = "0.3"
 
-
-common_error = { version = "0.1.0", path = "crates/common_error" }
-encoding = { version = "0.1.0", path = "crates/encoding" }
-sql = { version = "0.1.0", path = "crates/sql"}
+raft_db_common = { path = "crates/raft_db_common" }
+raft_db_sql = { path = "crates/raft_db_sql" }
+raft_db_encoding = { path = "crates/raft_db_encoding" }
