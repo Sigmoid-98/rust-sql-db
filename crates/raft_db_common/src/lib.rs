@@ -1,30 +1,32 @@
+mod error;
+
 use std::fmt::Display;
 use serde::{Deserialize, Serialize};
 
 #[macro_export]
 macro_rules! errdata {
     ($($args:tt)*) => {
-        $crate::Error::InvalidData(format!($($args)*)).into()
+        $crate::RaftDBError::InvalidData(format!($($args)*)).into()
     };
 }
 
 #[macro_export]
 macro_rules! errinput {
      ($($args:tt)*) => {
-         $crate::Error::InvalidInput(format!($($args)*)).into()
+         $crate::RaftDBError::InvalidInput(format!($($args)*)).into()
      };
  }
 
 /// DB errors
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum Error {
+pub enum RaftDBError {
     /// The operation was aborted and must be retried. This typically happens
     /// with e.g. Raft leader changes. This is used instead of implementing
     /// complex retry logic and replay protection in Raft.
     Abort,
     /// Invalid data, typically decoding errors or unexpected internal values.
     InvalidData(String),
-    /// Invalid user input, typically parser or query errors.
+    /// Invalid user input, typically sql_parser or query errors.
     InvalidInput(String),
     /// An IO error.
     IO(String),
@@ -35,22 +37,22 @@ pub enum Error {
     Serialization,
 }
 
-impl std::error::Error for Error {}
+impl std::error::Error for RaftDBError {}
 
-impl std::fmt::Display for Error {
+impl std::fmt::Display for RaftDBError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Error::Abort => write!(f, "operation aborted"),
-            Error::InvalidData(msg) => write!(f, "invalid data: {msg}"),
-            Error::InvalidInput(msg) => write!(f, "invalid input: {msg}"),
-            Error::IO(msg) => write!(f, "io error: {msg}"),
-            Error::ReadOnly => write!(f, "read-only transaction"),
-            Error::Serialization => write!(f, "serialization failure, retry transaction"),
+            RaftDBError::Abort => write!(f, "operation aborted"),
+            RaftDBError::InvalidData(msg) => write!(f, "invalid data: {msg}"),
+            RaftDBError::InvalidInput(msg) => write!(f, "invalid input: {msg}"),
+            RaftDBError::IO(msg) => write!(f, "io error: {msg}"),
+            RaftDBError::ReadOnly => write!(f, "read-only transaction"),
+            RaftDBError::Serialization => write!(f, "serialization failure, retry transaction"),
         }
     }
 }
 
-impl Error {
+impl RaftDBError {
     /// Returns whether the error is considered deterministic. Raft state
     /// machine application needs to know whether a command failure is
     /// deterministic on the input command -- if it is, the command can be
@@ -61,150 +63,150 @@ impl Error {
             // Aborts don't happen during application, only leader changes. But
             // we consider them non-deterministic in case an abort should happen
             // unexpectedly below Raft.
-            Error::Abort => false,
+            RaftDBError::Abort => false,
             // Possible data corruption local to this node.
-            Error::InvalidData(_) => false,
+            RaftDBError::InvalidData(_) => false,
             // Input errors are (likely) deterministic. They might not be in
             // case data was corrupted in flight, but we ignore this case.
-            Error::InvalidInput(_) => true,
+            RaftDBError::InvalidInput(_) => true,
             // IO errors are typically local to the node (e.g. faulty disk).
-            Error::IO(_) => false,
+            RaftDBError::IO(_) => false,
             // Write commands in read-only transactions are deterministic.
-            Error::ReadOnly => true,
+            RaftDBError::ReadOnly => true,
             // Serialization errors are non-deterministic.
-            Error::Serialization => false,
+            RaftDBError::Serialization => false,
         }
     }
 }
 
 
-impl serde::de::Error for Error {
+impl serde::de::Error for RaftDBError {
     fn custom<T>(msg: T) -> Self
     where
         T: Display
     {
-        Error::InvalidData(msg.to_string())
+        RaftDBError::InvalidData(msg.to_string())
     }
 }
 
-impl serde::ser::Error for Error {
+impl serde::ser::Error for RaftDBError {
     fn custom<T>(msg: T) -> Self
     where
         T: Display
     {
-        Error::InvalidData(msg.to_string())
+        RaftDBError::InvalidData(msg.to_string())
     }
 }
 
-impl From<bincode::error::DecodeError> for Error {
+impl From<bincode::error::DecodeError> for RaftDBError {
     fn from(err: bincode::error::DecodeError) -> Self {
-        Error::InvalidData(err.to_string())
+        RaftDBError::InvalidData(err.to_string())
     }
 }
 
-impl From<bincode::error::EncodeError> for Error {
+impl From<bincode::error::EncodeError> for RaftDBError {
     fn from(err: bincode::error::EncodeError) -> Self {
-        Error::InvalidData(err.to_string())
+        RaftDBError::InvalidData(err.to_string())
     }
 }
 
-impl From<config::ConfigError> for Error {
+impl From<config::ConfigError> for RaftDBError {
     fn from(err: config::ConfigError) -> Self {
-        Error::InvalidInput(err.to_string())
+        RaftDBError::InvalidInput(err.to_string())
     }
 }
 
-impl From<crossbeam::channel::RecvError> for Error {
+impl From<crossbeam::channel::RecvError> for RaftDBError {
     fn from(err: crossbeam::channel::RecvError) -> Self {
-        Error::IO(err.to_string())
+        RaftDBError::IO(err.to_string())
     }
 }
 
-impl From<crossbeam::channel::TryRecvError> for Error {
+impl From<crossbeam::channel::TryRecvError> for RaftDBError {
     fn from(err: crossbeam::channel::TryRecvError) -> Self {
-        Error::IO(err.to_string())
+        RaftDBError::IO(err.to_string())
     }
 }
 
-impl<T> From<crossbeam::channel::TrySendError<T>> for Error {
+impl<T> From<crossbeam::channel::TrySendError<T>> for RaftDBError {
     fn from(err: crossbeam::channel::TrySendError<T>) -> Self {
-        Error::IO(err.to_string())
+        RaftDBError::IO(err.to_string())
     }
 }
 
-impl From<hdrhistogram::CreationError> for Error {
+impl From<hdrhistogram::CreationError> for RaftDBError {
     fn from(err: hdrhistogram::CreationError) -> Self {
         panic!("{err}") // faulty code
     }
 }
 
-impl From<hdrhistogram::RecordError> for Error {
+impl From<hdrhistogram::RecordError> for RaftDBError {
     fn from(err: hdrhistogram::RecordError) -> Self {
-        Error::InvalidInput(err.to_string())
+        RaftDBError::InvalidInput(err.to_string())
     }
 }
 
-impl From<log::ParseLevelError> for Error {
+impl From<log::ParseLevelError> for RaftDBError {
     fn from(err: log::ParseLevelError) -> Self {
-        Error::InvalidInput(err.to_string())
+        RaftDBError::InvalidInput(err.to_string())
     }
 }
 
-impl From<log::SetLoggerError> for Error {
+impl From<log::SetLoggerError> for RaftDBError {
     fn from(err: log::SetLoggerError) -> Self {
         panic!("{err}") // faulty code
     }
 }
 
-impl From<regex::Error> for Error {
+impl From<regex::Error> for RaftDBError {
     fn from(err: regex::Error) -> Self {
         panic!("{err}") // faulty code
     }
 }
 
-impl From<rustyline::error::ReadlineError> for Error {
+impl From<rustyline::error::ReadlineError> for RaftDBError {
     fn from(err: rustyline::error::ReadlineError) -> Self {
-        Error::IO(err.to_string())
+        RaftDBError::IO(err.to_string())
     }
 }
 
-impl From<std::array::TryFromSliceError> for Error {
+impl From<std::array::TryFromSliceError> for RaftDBError {
     fn from(err: std::array::TryFromSliceError) -> Self {
-        Error::InvalidData(err.to_string())
+        RaftDBError::InvalidData(err.to_string())
     }
 }
 
-impl From<std::io::Error> for Error {
+impl From<std::io::Error> for RaftDBError {
     fn from(err: std::io::Error) -> Self {
-        Error::IO(err.to_string())
+        RaftDBError::IO(err.to_string())
     }
 }
 
-impl From<std::num::ParseFloatError> for Error {
+impl From<std::num::ParseFloatError> for RaftDBError {
     fn from(err: std::num::ParseFloatError) -> Self {
-        Error::InvalidInput(err.to_string())
+        RaftDBError::InvalidInput(err.to_string())
     }
 }
 
-impl From<std::num::ParseIntError> for Error {
+impl From<std::num::ParseIntError> for RaftDBError {
     fn from(err: std::num::ParseIntError) -> Self {
-        Error::InvalidInput(err.to_string())
+        RaftDBError::InvalidInput(err.to_string())
     }
 }
 
-impl From<std::num::TryFromIntError> for Error {
+impl From<std::num::TryFromIntError> for RaftDBError {
     fn from(err: std::num::TryFromIntError) -> Self {
-        Error::InvalidData(err.to_string())
+        RaftDBError::InvalidData(err.to_string())
     }
 }
 
-impl From<std::string::FromUtf8Error> for Error {
+impl From<std::string::FromUtf8Error> for RaftDBError {
     fn from(err: std::string::FromUtf8Error) -> Self {
-        Error::InvalidData(err.to_string())
+        RaftDBError::InvalidData(err.to_string())
     }
 }
 
-impl<T> From<std::sync::PoisonError<T>> for Error {
+impl<T> From<std::sync::PoisonError<T>> for RaftDBError {
     fn from(err: std::sync::PoisonError<T>) -> Self {
         // This only happens when a different thread panics while holding a
         // mutex. This should be fatal, so we panic here too.
@@ -214,10 +216,10 @@ impl<T> From<std::sync::PoisonError<T>> for Error {
 
 
 /// A toyDB Result returning Error.
-pub type Result<T> = std::result::Result<T, Error>;
+pub type RaftDBResult<T> = std::result::Result<T, RaftDBError>;
 
-impl<T> From<Error> for Result<T> {
-    fn from(error: Error) -> Self {
+impl<T> From<RaftDBError> for RaftDBResult<T> {
+    fn from(error: RaftDBError) -> Self {
         Err(error)
     }
 }

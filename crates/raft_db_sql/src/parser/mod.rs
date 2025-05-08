@@ -3,3 +3,6 @@
 pub mod ast;
 mod lexer;
 mod parser;
+
+pub use lexer::{Keyword, Lexer, Token, is_ident};
+pub use parser::Parser;

@@ -1,0 +1,21 @@
+[package]
+name = "raft_db_encoding"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+raft_db_common = { workspace = true }
+raft_db_sql = { workspace = true }
+
+bincode.workspace = true
+serde.workspace = true
+itertools.workspace = true
+serde_bytes.workspace = true
+regex = { workspace = true }
+
+[dev-dependencies]
+paste.workspace = true
+hex.workspace = true
