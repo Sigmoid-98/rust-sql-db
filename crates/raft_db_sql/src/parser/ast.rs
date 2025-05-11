@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use serde::{Deserialize, Serialize};
 use crate::types::{DataType, Label};
 
 /// The statement is the root node of the Abstract Syntax Tree, and describes
@@ -88,7 +89,7 @@ impl JoinType {
 }
 
 /// ORDER BY direction
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Direction {
     Ascending,
     Descending,

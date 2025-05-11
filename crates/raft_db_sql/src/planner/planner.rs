@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use raft_db_common::{errinput, RaftDBResult};
 use crate::engine::Catalog;
-use crate::parser::ast::{self, Statement};
+use crate::parser::ast;
 use crate::planner::plan::{remap_sources, Plan};
 use crate::types::{self, Table};
 
@@ -21,20 +21,21 @@ impl<'a, C: Catalog> Planner<'a, C> {
     /// Builds a plan for an AST statement.
     pub fn build(&mut self, statement: ast::Statement) -> RaftDBResult<Plan> {
         match statement {
-            Statement::CreateTable { name, columns } => 
-            Statement::Begin { .. } => {}
-            Statement::Commit => {}
-            Statement::Rollback => {}
-            Statement::Explain(_) => {}
-            Statement::DropTable { .. } => {}
-            Statement::Delete { .. } => {}
-            Statement::Insert { .. } => {}
-            Statement::Update { .. } => {}
-            Statement::Select { .. } => {}
+            ast::Statement::CreateTable { name, columns } => self
+            ast::Statement::Begin { .. } => {}
+            ast::Statement::Commit => {}
+            ast::Statement::Rollback => {}
+            ast::Statement::Explain(_) => {}
+            ast::Statement::DropTable { .. } => {}
+            ast::Statement::Delete { .. } => {}
+            ast::Statement::Insert { .. } => {}
+            ast::Statement::Update { .. } => {}
+            ast::Statement::Select { .. } => {}
         }
     }
-    
-    
+
+    /// Builds an expression from an AST expression, looking up columns and
+    /// aggregate expressions in the scope.
     pub fn build_expression(expr: ast::Expression, scope: &Scope) -> RaftDBResult<types::Expression> {
         // Look up aggregate functions or GROUP BY expressions. These were added
         // to the scope when building the Aggregate node, if any.
@@ -43,11 +44,14 @@ impl<'a, C: Catalog> Planner<'a, C> {
         }
 
         // Helper for building a boxed expression.
-        let builder = |expr: Box<ast::Expression>| -> RaftDBResult<Box<ast::Expression>> {
+        let builder = |expr: Box<ast::Expression>| -> RaftDBResult<Box<types::Expression>> {
             Ok(Box::new(Self::build_expression(*expr, scope)?))
         };
         
         Ok(match expr {
+            // For simplicity, expression evaluation only supports scalar
+            // values, not compound types like tuples. Support for * is
+            // therefore special-cased in SELECT and COUNT(*).
             ast::Expression::All => return errinput!("unsupported use of *"),
             ast::Expression::Literal(l) => types::Expression::Constant(match l {
                 ast::Literal::Null => types::Value::Null,
@@ -59,9 +63,55 @@ impl<'a, C: Catalog> Planner<'a, C> {
             ast::Expression::Column(table, name) => {
                 types::Expression::Column(scope.lookup_column(table.as_deref(), &name)?)
             }
-            ast::Expression::Function(_, _) => {}
-            ast::Expression::Operator(_) => {}
+            ast::Expression::Function(name, mut args) => match (name.as_str(), args.len()) {
+                // NB: aggregate functions are processed above.
+                ("sqrt", 1) => types::Expression::SquareRoot(builder(Box::new(args.remove(0)))?),
+                (name, n) => return errinput!("unknown function {name} with {n} arguments"),
+            }
+            ast::Expression::Operator(op) => match op {
+                ast::Operator::And(lhs, rhs) => types::Expression::And(builder(lhs)?, builder(rhs)?),
+                ast::Operator::Not(expr) => types::Expression::Not(builder(expr)?),
+                ast::Operator::Or(lhs, rhs) => types::Expression::Or(builder(lhs)?, builder(rhs)?),
+
+                ast::Operator::Equal(lhs, rhs) => types::Expression::Equal(builder(lhs)?, builder(rhs)?),
+                ast::Operator::GreaterThan(lhs, rhs) => types::Expression::GreaterThan(builder(lhs)?, builder(rhs)?),
+                ast::Operator::GreaterThanOrEqual(lhs, rhs) => types::Expression::Or(
+                    types::Expression::GreaterThan(builder(lhs.clone())?, builder(rhs.clone())?).into(),
+                    types::Expression::Equal(builder(lhs)?, builder(rhs)?).into(),
+                ),
+                ast::Operator::Is(expr, literal) => {
+                    let expr = builder(expr)?;
+                    let value = match literal {
+                        ast::Literal::Null => types::Value::Null,
+                        ast::Literal::Float(f) if f.is_nan() => types::Value::Float(f),
+                        value => panic!("invalid IS value {value:?}"), // enforced by parser
+                    };
+                    types::Expression::Is(expr, value)
+                }
+                ast::Operator::LessThan(lhs, rhs) => types::Expression::LessThan(builder(lhs)?, builder(rhs)?),
+                ast::Operator::LessThanOrEqual(lhs, rhs) => types::Expression::Or(
+                    types::Expression::LessThan(builder(lhs.clone())?, builder(rhs.clone())?).into(),
+                    types::Expression::Equal(builder(lhs)?, builder(rhs)?).into(),
+                ),
+                ast::Operator::Like(lhs, rhs) => types::Expression::Like(builder(lhs)?, builder(rhs)?),
+                ast::Operator::NotEqual(lhs, rhs) => types::Expression::Not(types::Expression::Equal(builder(lhs)?, builder(rhs)?).into()),
+
+                ast::Operator::Add(lhs, rhs) => types::Expression::Add(builder(lhs)?, builder(rhs)?),
+                ast::Operator::Divide(lhs, rhs) => types::Expression::Divide(builder(lhs)?, builder(rhs)?),
+                ast::Operator::Exponentiate(lhs, rhs) => types::Expression::Exponentiate(builder(lhs)?, builder(rhs)?),
+                ast::Operator::Factorial(expr) => types::Expression::Factorial(builder(expr)?),
+                ast::Operator::Identity(expr) => types::Expression::Identity(builder(expr)?),
+                ast::Operator::Remainder(lhs, rhs) => types::Expression::Remainder(builder(lhs)?, builder(rhs)?),
+                ast::Operator::Multiply(lhs, rhs) => types::Expression::Multiply(builder(lhs)?, builder(rhs)?),
+                ast::Operator::Negate(expr) => types::Expression::Negate(builder(expr)?),
+                ast::Operator::Subtract(lhs, rhs) => types::Expression::Subtract(builder(lhs)?, builder(rhs)?),
+            }
         })
+    }
+
+    /// Builds and evaluates a constant AST expression. Errors on column refs
+    fn evaluate_constant(expr: ast::Expression) -> RaftDBResult<types::Value> {
+        Self::build_expression(expr, &Scope::new())?.evaluate(None)
     }
 }
 
