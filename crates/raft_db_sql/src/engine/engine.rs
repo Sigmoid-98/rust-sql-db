@@ -1,5 +1,6 @@
+use std::collections::{BTreeMap, BTreeSet};
 use raft_db_common::{errinput, RaftDBResult};
-use crate::types::Table;
+use crate::types::{Expression, Row, Rows, Table, Value};
 
 /// A SQL engine. This provides low-level CRUD (create, read, update, delete)
 /// operations for table rows, a schema catalog for accessing and modifying
@@ -32,6 +33,19 @@ pub trait Engine<'a>: Sized {
 /// rather not have to do that for every single row that's modified.
 pub trait Transaction {
     // todo()
+
+    /// Deletes table rows by primary key, if they exist.
+    fn delete(&self, table: &str, ids: &[Value]) -> RaftDBResult<()>;
+    /// Fetches table rows by primary key, if they exist.
+    fn get(&self, table: &str, ids: &[Value]) -> RaftDBResult<Vec<Row>>;
+    /// Inserts new table rows.
+    fn insert(&self, table: &str, rows: Vec<Row>) -> RaftDBResult<()>;
+    /// Looks up a set of primary keys by index values. BTreeSet for testing.
+    fn lookup_index(&self, table: &str, column: &str, values: &[Value]) -> RaftDBResult<BTreeSet<Value>>;
+    /// Scans a table's rows, optionally applying the given filter.
+    fn scan(&self, table: &str, filter: Option<Expression>) -> RaftDBResult<Rows>;
+    /// Updates table rows by primary key. Uses BTreeMap for testing.
+    fn update(&self, table: &str, rows: BTreeMap<Value, Row>) -> RaftDBResult<()>;
 }
 
 /// The catalog stores table schema information. It must be implemented for

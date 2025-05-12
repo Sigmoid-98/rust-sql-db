@@ -668,6 +668,7 @@ name = "raft_db_sql"
 version = "0.1.0"
 dependencies = [
  "dyn-clone",
+ "itertools",
  "raft_db_common",
  "serde",
 ]

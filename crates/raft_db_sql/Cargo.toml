@@ -8,3 +8,4 @@ raft_db_common = { workspace = true }
 
 dyn-clone = { workspace = true }
 serde = { workspace = true }
+itertools = { workspace = true }

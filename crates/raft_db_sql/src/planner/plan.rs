@@ -2,8 +2,9 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use serde::{Deserialize, Serialize};
 use raft_db_common::RaftDBResult;
-use crate::engine::Catalog;
+use crate::engine::{Catalog, Transaction};
 use crate::parser::ast;
+use crate::planner::Planner;
 use crate::types::{Expression, Label, Table, Value};
 
 pub enum Plan {
@@ -61,8 +62,10 @@ impl Display for Plan {
 impl Plan {
     /// Builds a plan from an AST statement.
     pub fn build(statement: ast::Statement, catalog: &impl Catalog) -> RaftDBResult<Self> {
-        unimplemented!()
+        Planner::new(catalog).build(statement)
     }
+    
+    pub fn execute(self, txn: &(impl Transaction + Catalog)) -> RaftDBResult<Ex> {}
 }
 
 
