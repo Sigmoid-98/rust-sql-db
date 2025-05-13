@@ -1,7 +1,9 @@
+use regex::Regex;
 use serde::{Deserialize, Serialize};
+use raft_db_common::{errinput, RaftDBResult};
 use crate::planner::Node;
 use crate::types;
-use crate::types::Value;
+use crate::types::{Label, Row, Value};
 
 /// An expression, made up of nested operations and values. Values are either
 /// constants or dynamic column references. Evaluates to a final value during
@@ -133,5 +135,228 @@ impl Expression {
 
             Expression::Like(lhs, rhs) => format!("{} LIKE {}", format(lhs), format(rhs)),
         }
+    }
+
+    /// Formats a constant expression. Errors on column references.
+    pub fn format_constant(&self) -> String {
+        self.format(&Node::Nothing { columns: Vec::new() })
+    }
+
+    /// Evaluates an expression, returning a value. Column references look up
+    /// values in the given row. If None, any Column references will panic.
+    pub fn evaluate(&self, row: Option<&Row>) -> RaftDBResult<Value> {
+        use Value::*;
+        Ok(match self {
+            // Constant values return themselves.
+            Self::Constant(value) => value.clone(),
+
+            // Column references look up a row value. The planner ensures that
+            // only constant expressions are evaluated without a row.
+            Self::Column(index) => match row {
+                Some(row) => row.get(*index).expect("short row").clone(),
+                None => panic!("can't reference column {index} with constant evaluation"),
+            },
+
+            // Logical AND. Inputs must be boolean or NULL. NULLs generally
+            // yield NULL, except the special case NULL AND false == false.
+            Self::And(lhs, rhs) => match (lhs.evaluate(row)?, rhs.evaluate(row)?) {
+                (Boolean(lhs), Boolean(rhs)) => Boolean(lhs && rhs),
+                (Boolean(b), Null) | (Null, Boolean(b)) if !b => Boolean(false),
+                (Boolean(_), Null) | (Null, Boolean(_)) | (Null, Null) => Null,
+                (lhs, rhs) => return errinput!("can't AND {lhs} and {rhs}"),
+            },
+
+            // Logical OR. Inputs must be boolean or NULL. NULLs generally
+            // yield NULL, except the special case NULL OR true == true.
+            Self::Or(lhs, rhs) => match (lhs.evaluate(row)?, rhs.evaluate(row)?) {
+                (Boolean(lhs), Boolean(rhs)) => Boolean(lhs || rhs),
+                (Boolean(b), Null) | (Null, Boolean(b)) if b => Boolean(true),
+                (Boolean(_), Null) | (Null, Boolean(_)) | (Null, Null) => Null,
+                (lhs, rhs) => return errinput!("can't OR {lhs} and {rhs}"),
+            },
+
+            // Logical NOT. Input must be boolean or NULL.
+            Self::Not(expr) => match expr.evaluate(row)? {
+                Boolean(b) => Boolean(!b),
+                Null => Null,
+                value => return errinput!("can't NOT {value}"),
+            },
+
+            // Comparisons. Must be of same type, except floats and integers
+            // which are interchangeable. NULLs yield NULL, NaNs yield NaN.
+            //
+            // Does not dispatch to Value.cmp() because sorting and comparisons
+            // are different for f64 NaN and -0.0 values.
+            #[allow(clippy::float_cmp)]
+            Self::Equal(lhs, rhs) => match (lhs.evaluate(row)?, rhs.evaluate(row)?) {
+                (Boolean(lhs), Boolean(rhs)) => Boolean(lhs == rhs),
+                (Integer(lhs), Integer(rhs)) => Boolean(lhs == rhs),
+                (Integer(lhs), Float(rhs)) => Boolean(lhs as f64 == rhs),
+                (Float(lhs), Integer(rhs)) => Boolean(lhs == rhs as f64),
+                (Float(lhs), Float(rhs)) => Boolean(lhs == rhs),
+                (String(lhs), String(rhs)) => Boolean(lhs == rhs),
+                (Null, _) | (_, Null) => Null,
+                (lhs, rhs) => return errinput!("can't compare {lhs} and {rhs}"),
+            },
+
+            Self::GreaterThan(lhs, rhs) => match (lhs.evaluate(row)?, rhs.evaluate(row)?) {
+                #[allow(clippy::bool_comparison)]
+                (Boolean(lhs), Boolean(rhs)) => Boolean(lhs > rhs),
+                (Integer(lhs), Integer(rhs)) => Boolean(lhs > rhs),
+                (Integer(lhs), Float(rhs)) => Boolean(lhs as f64 > rhs),
+                (Float(lhs), Integer(rhs)) => Boolean(lhs > rhs as f64),
+                (Float(lhs), Float(rhs)) => Boolean(lhs > rhs),
+                (String(lhs), String(rhs)) => Boolean(lhs > rhs),
+                (Null, _) | (_, Null) => Null,
+                (lhs, rhs) => return errinput!("can't compare {lhs} and {rhs}"),
+            },
+
+            Self::LessThan(lhs, rhs) => match (lhs.evaluate(row)?, rhs.evaluate(row)?) {
+                #[allow(clippy::bool_comparison)]
+                (Boolean(lhs), Boolean(rhs)) => Boolean(lhs < rhs),
+                (Integer(lhs), Integer(rhs)) => Boolean(lhs < rhs),
+                (Integer(lhs), Float(rhs)) => Boolean((lhs as f64) < rhs),
+                (Float(lhs), Integer(rhs)) => Boolean(lhs < rhs as f64),
+                (Float(lhs), Float(rhs)) => Boolean(lhs < rhs),
+                (String(lhs), String(rhs)) => Boolean(lhs < rhs),
+                (Null, _) | (_, Null) => Null,
+                (lhs, rhs) => return errinput!("can't compare {lhs} and {rhs}"),
+            },
+
+            Self::Is(expr, Null) => Boolean(expr.evaluate(row)? == Null),
+            Self::Is(expr, Float(f)) if f.is_nan() => match expr.evaluate(row)? {
+                Float(f) => Boolean(f.is_nan()),
+                Null => Null,
+                v => return errinput!("IS NAN can't be used with {}", v.datatype().unwrap()),
+            },
+            Self::Is(_, v) => panic!("invalid IS value {v}"), // enforced by parser
+
+            // Mathematical operations. Inputs must be numbers, but integers and
+            // floats are interchangeable (float when mixed). NULLs yield NULL.
+            // Errors on integer overflow, while floats yield infinity or NaN.
+            Self::Add(lhs, rhs) => lhs.evaluate(row)?.checked_add(&rhs.evaluate(row)?)?,
+            Self::Divide(lhs, rhs) => lhs.evaluate(row)?.checked_div(&rhs.evaluate(row)?)?,
+            Self::Exponentiate(lhs, rhs) => lhs.evaluate(row)?.checked_pow(&rhs.evaluate(row)?)?,
+            Self::Factorial(expr) => match expr.evaluate(row)? {
+                Integer(i) if i < 0 => return errinput!("can't take factorial of negative number"),
+                Integer(i) => (1..=i).try_fold(Integer(1), |p, i| p.checked_mul(&Integer(i)))?,
+                Null => Null,
+                value => return errinput!("can't take factorial of {value}"),
+            },
+            Self::Identity(expr) => match expr.evaluate(row)? {
+                v @ (Integer(_) | Float(_) | Null) => v,
+                expr => return errinput!("can't take the identity of {expr}"),
+            },
+            Self::Multiply(lhs, rhs) => lhs.evaluate(row)?.checked_mul(&rhs.evaluate(row)?)?,
+            Self::Negate(expr) => match expr.evaluate(row)? {
+                Integer(i) => Integer(-i),
+                Float(f) => Float(-f),
+                Null => Null,
+                value => return errinput!("can't negate {value}"),
+            },
+            Self::Remainder(lhs, rhs) => lhs.evaluate(row)?.checked_rem(&rhs.evaluate(row)?)?,
+            Self::SquareRoot(expr) => match expr.evaluate(row)? {
+                Integer(i) if i < 0 => return errinput!("can't take negative square root"),
+                Integer(i) => Float((i as f64).sqrt()),
+                Float(f) => Float(f.sqrt()),
+                Null => Null,
+                value => return errinput!("can't take square root of {value}"),
+            },
+            Self::Subtract(lhs, rhs) => lhs.evaluate(row)?.checked_sub(&rhs.evaluate(row)?)?,
+
+            // LIKE pattern matching, using _ and % as single- and
+            // multi-character wildcards. Inputs must be strings. NULLs yield
+            // NULL. There's no support for escaping an _ and %.
+            Self::Like(lhs, rhs) => match (lhs.evaluate(row)?, rhs.evaluate(row)?) {
+                (String(lhs), String(rhs)) => {
+                    // We could precompile the pattern if it's constant, instead
+                    // of recompiling it for every row, but this is fine.
+                    let pattern =
+                        format!("^{}$", regex::escape(&rhs).replace('%', ".*").replace('_', "."));
+                    Boolean(Regex::new(&pattern)?.is_match(&lhs))
+                }
+                (String(_), Null) | (Null, String(_)) | (Null, Null) => Null,
+                (lhs, rhs) => return errinput!("can't LIKE {lhs} and {rhs}"),
+            },
+        })
+    }
+
+    /// Recursively walks the expression tree depth-first, calling the given
+    /// closure until it returns false. Returns true otherwise.
+    pub fn walk(&self, visitor: &mut impl FnMut(&Expression) -> bool) -> bool {
+        if !visitor(self) {
+            return false;
+        }
+        match self {
+            | Self::Add(lhs, rhs)
+            | Self::And(lhs, rhs)
+            | Self::Divide(lhs, rhs)
+            | Self::Equal(lhs, rhs)
+            | Self::Exponentiate(lhs, rhs)
+            | Self::GreaterThan(lhs, rhs)
+            | Self::LessThan(lhs, rhs)
+            | Self::Like(lhs, rhs)
+            | Self::Multiply(lhs, rhs)
+            | Self::Or(lhs, rhs)
+            | Self::Remainder(lhs, rhs)
+            | Self::Subtract(lhs, rhs) => lhs.walk(visitor) && rhs.walk(visitor),
+
+            | Self::Factorial(expr)
+            | Self::Identity(expr)
+            | Self::Is(expr, _)
+            | Self::Negate(expr)
+            | Self::Not(expr)
+            | Self::SquareRoot(expr) => expr.walk(visitor),
+
+            Self::Constant(_) | Self::Column(_) => true,
+        }
+    }
+
+    /// Recursively walks the expression tree depth-first, calling the given
+    /// closure until it returns true. Returns false otherwise. This is the
+    /// inverse of walk().
+    pub fn contains(&self, visitor: &impl Fn(&Expression) -> bool) -> bool {
+        !self.walk(&mut |e| !visitor(e))
+    }
+
+    /// Transforms the expression by recursively applying the given closures
+    /// depth-first to each node before/after descending.
+    pub fn transform(
+        mut self,
+        before: &impl Fn(Self) -> RaftDBResult<Self>,
+        after: &impl Fn(Self) -> RaftDBResult<Self>,
+    ) -> RaftDBResult<Self> {
+        // Helper for transforming boxed expressions.
+        let xform = |mut expr: Box<Expression>| -> RaftDBResult<Box<Expression>> {
+            *expr = expr.transform(before, after)?;
+            Ok(expr)
+        };
+
+        self = before(self)?;
+        self = match self {
+            Self::Add(lhs, rhs) => Self::Add(xform(lhs)?, xform(rhs)?),
+            Self::And(lhs, rhs) => Self::And(xform(lhs)?, xform(rhs)?),
+            Self::Divide(lhs, rhs) => Self::Divide(xform(lhs)?, xform(rhs)?),
+            Self::Equal(lhs, rhs) => Self::Equal(xform(lhs)?, xform(rhs)?),
+            Self::Exponentiate(lhs, rhs) => Self::Exponentiate(xform(lhs)?, xform(rhs)?),
+            Self::GreaterThan(lhs, rhs) => Self::GreaterThan(xform(lhs)?, xform(rhs)?),
+            Self::LessThan(lhs, rhs) => Self::LessThan(xform(lhs)?, xform(rhs)?),
+            Self::Like(lhs, rhs) => Self::Like(xform(lhs)?, xform(rhs)?),
+            Self::Multiply(lhs, rhs) => Self::Multiply(xform(lhs)?, xform(rhs)?),
+            Self::Or(lhs, rhs) => Self::Or(xform(lhs)?, xform(rhs)?),
+            Self::Remainder(lhs, rhs) => Self::Remainder(xform(lhs)?, xform(rhs)?),
+            Self::SquareRoot(expr) => Self::SquareRoot(xform(expr)?),
+            Self::Subtract(lhs, rhs) => Self::Subtract(xform(lhs)?, xform(rhs)?),
+
+            Self::Factorial(expr) => Self::Factorial(xform(expr)?),
+            Self::Identity(expr) => Self::Identity(xform(expr)?),
+            Self::Is(expr, value) => Self::Is(xform(expr)?, value),
+            Self::Negate(expr) => Self::Negate(xform(expr)?),
+            Self::Not(expr) => Self::Not(xform(expr)?),
+
+            expr @ (Self::Constant(_) | Self::Column(_)) => expr,
+        };
+        self = after(self)?;
+        Ok(self)
     }
 }

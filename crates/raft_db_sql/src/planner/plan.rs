@@ -6,6 +6,7 @@ use crate::engine::{Catalog, Transaction};
 use crate::parser::ast;
 use crate::planner::Planner;
 use crate::types::{Expression, Label, Table, Value};
+use itertools::Itertools as _;
 
 pub enum Plan {
     /// A CREATE TABLE plan. Creates a new table with the given schema. Errors
@@ -129,6 +130,201 @@ pub enum Node {
 
 
 impl Node {
+    /// Returns the number of columns emitted by the node.
+    pub fn columns(&self) -> usize {
+        match self {
+            // Source nodes emit all table columns.
+            | Self::IndexLookup { table, .. }
+            | Self::KeyLookup { table, .. }
+            | Self::Scan { table, .. } => table.columns.len(),
+
+            // Some nodes modify the column set.
+            Self::Aggregate { aggregates, group_by, .. } => aggregates.len() + group_by.len(),
+            Self::Projection { expressions, .. } => expressions.len(),
+            Self::Remap { targets, .. } => {
+                targets.iter().filter_map(|v| *v).map(|i| i + 1).max().unwrap_or(0)
+            }
+
+            // Join nodes emit the combined columns.
+            Self::HashJoin { left, right, .. } | Self::NestedLoopJoin { left, right, .. } => {
+                left.columns() + right.columns()
+            }
+
+            // Simple nodes just pass through the source columns.
+            | Self::Filter { source, .. }
+            | Self::Limit { source, .. }
+            | Self::Offset { source, .. }
+            | Self::Order { source, .. } => source.columns(),
+
+            // And some are trivial.
+            Self::Nothing { columns } => columns.len(),
+            Self::Values { rows } => rows.first().map(|row| row.len()).unwrap_or(0),
+        }
+    }
+
+    /// Returns a label for a column, if any, by tracing the column through the
+    /// plan tree. Only used for query result headers and plan display purposes,
+    /// not to look up expression columns (see Scope).
+    pub fn column_label(&self, index: usize) -> Label {
+        match self {
+            // Source nodes use the table/column name.
+            | Self::IndexLookup { table, alias, .. }
+            | Self::KeyLookup { table, alias, .. }
+            | Self::Scan { table, alias, .. } => Label::Qualified(
+                alias.as_ref().unwrap_or(&table.name).clone(),
+                table.columns[index].name.clone(),
+            ),
+
+            // Some nodes rearrange columns. Route them to the correct
+            // upstream column where appropriate.
+            Self::Aggregate { source, group_by, .. } => match group_by.get(index) {
+                Some(Expression::Column(index)) => source.column_label(*index),
+                Some(_) | None => Label::None,
+            },
+            Self::Projection { source, expressions, aliases } => match aliases.get(index) {
+                Some(Label::None) | None => match expressions.get(index) {
+                    // Unaliased column references route to the source.
+                    Some(Expression::Column(index)) => source.column_label(*index),
+                    // Unaliased expressions don't have a name.
+                    Some(_) | None => Label::None,
+                },
+                // Aliased columns use the alias.
+                Some(alias) => alias.clone(),
+            },
+            Self::Remap { source, targets } => targets
+                .iter()
+                .position(|t| t == &Some(index))
+                .map(|i| source.column_label(i))
+                .unwrap_or(Label::None),
+
+            // Joins dispatch to the appropriate source.
+            Self::HashJoin { left, right, .. } | Self::NestedLoopJoin { left, right, .. } => {
+                if index < left.columns() {
+                    left.column_label(index)
+                } else {
+                    right.column_label(index - left.columns())
+                }
+            }
+
+            // Simple nodes just dispatch to the source.
+            | Self::Filter { source, .. }
+            | Self::Limit { source, .. }
+            | Self::Offset { source, .. }
+            | Self::Order { source, .. } => source.column_label(index),
+
+            // Nothing nodes contain the original columns of replaced nodes.
+            Self::Nothing { columns } => columns.get(index).cloned().unwrap_or(Label::None),
+
+            // And some don't have any names at all.
+            Self::Values { .. } => Label::None,
+        }
+    }
+
+    /// Recursively transforms query nodes depth-first by applying the given
+    /// closures before and after descending.
+    pub fn transform(
+        mut self,
+        before: &impl Fn(Self) -> RaftDBResult<Self>,
+        after: &impl Fn(Self) -> RaftDBResult<Self>,
+    ) -> RaftDBResult<Self> {
+        // Helper for transforming boxed nodes.
+        let xform = |mut node: Box<Node>| -> RaftDBResult<Box<Node>> {
+            *node = node.transform(before, after)?;
+            Ok(node)
+        };
+
+        self = before(self)?;
+        self = match self {
+            Self::Aggregate { source, group_by, aggregates } => {
+                Self::Aggregate { source: xform(source)?, group_by, aggregates }
+            }
+            Self::Filter { source, predicate } => {
+                Self::Filter { source: xform(source)?, predicate }
+            }
+            Self::HashJoin { left, left_column, right, right_column, outer } => Self::HashJoin {
+                left: xform(left)?,
+                left_column,
+                right: xform(right)?,
+                right_column,
+                outer,
+            },
+            Self::Limit { source, limit } => Self::Limit { source: xform(source)?, limit },
+            Self::NestedLoopJoin { left, right, predicate, outer } => {
+                Self::NestedLoopJoin { left: xform(left)?, right: xform(right)?, predicate, outer }
+            }
+            Self::Offset { source, offset } => Self::Offset { source: xform(source)?, offset },
+            Self::Order { source, key } => Self::Order { source: xform(source)?, key },
+            Self::Projection { source, expressions, aliases } => {
+                Self::Projection { source: xform(source)?, expressions, aliases }
+            }
+            Self::Remap { source, targets } => Self::Remap { source: xform(source)?, targets },
+
+            Self::IndexLookup { .. }
+            | Self::KeyLookup { .. }
+            | Self::Nothing { .. }
+            | Self::Scan { .. }
+            | Self::Values { .. } => self,
+        };
+        self = after(self)?;
+        Ok(self)
+    }
+
+    /// Recursively transforms all node expressions by calling the given
+    /// closures on them before and after descending.
+    pub fn transform_expressions(
+        self,
+        before: &impl Fn(Expression) -> RaftDBResult<Expression>,
+        after: &impl Fn(Expression) -> RaftDBResult<Expression>,
+    ) -> RaftDBResult<Self> {
+        Ok(match self {
+            Self::Filter { source, mut predicate } => {
+                predicate = predicate.transform(before, after)?;
+                Self::Filter { source, predicate }
+            }
+            Self::NestedLoopJoin { left, right, predicate: Some(predicate), outer } => {
+                let predicate = Some(predicate.transform(before, after)?);
+                Self::NestedLoopJoin { left, right, predicate, outer }
+            }
+            Self::Order { source, mut key } => {
+                key = key
+                    .into_iter()
+                    .map(|(expr, dir)| Ok((expr.transform(before, after)?, dir)))
+                    .collect::<RaftDBResult<_>>()?;
+                Self::Order { source, key }
+            }
+            Self::Projection { source, mut expressions, aliases } => {
+                expressions = expressions
+                    .into_iter()
+                    .map(|expr| expr.transform(before, after))
+                    .try_collect()?;
+                Self::Projection { source, expressions, aliases }
+            }
+            Self::Scan { table, alias, filter: Some(filter) } => {
+                let filter = Some(filter.transform(before, after)?);
+                Self::Scan { table, alias, filter }
+            }
+            Self::Values { mut rows } => {
+                rows = rows
+                    .into_iter()
+                    .map(|row| row.into_iter().map(|expr| expr.transform(before, after)).collect())
+                    .try_collect()?;
+                Self::Values { rows }
+            }
+
+            Self::Aggregate { .. }
+            | Self::HashJoin { .. }
+            | Self::IndexLookup { .. }
+            | Self::KeyLookup { .. }
+            | Self::Limit { .. }
+            | Self::NestedLoopJoin { predicate: None, .. }
+            | Self::Nothing { .. }
+            | Self::Offset { .. }
+            | Self::Remap { .. }
+            | Self::Scan { filter: None, .. } => self,
+        })
+    }
+    
+    
     /// Recursively formats the node. Prefix is used for tree branch lines. root
     /// is true if this is the root (first) node, and last_child is true if this
     /// is the last child node of the parent.

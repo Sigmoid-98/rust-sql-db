@@ -670,6 +670,7 @@ dependencies = [
  "dyn-clone",
  "itertools",
  "raft_db_common",
+ "regex",
  "serde",
 ]
 

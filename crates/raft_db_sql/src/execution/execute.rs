@@ -1,5 +1,6 @@
 use raft_db_common::RaftDBResult;
 use crate::engine::{Catalog, Transaction};
+use crate::execution::{aggregate, write};
 use crate::planner::{Node, Plan};
 use crate::types::{Label, Rows};
 
@@ -43,14 +44,40 @@ pub fn execute_plan(
     })
 }
 
-
+/// Recursively executes a query plan node, returning a row iterator.
+///
+/// Rows stream through the plan node tree from the branches to the root. Nodes
+/// recursively pull input rows upwards from their child node(s), process them,
+/// and hand the resulting rows off to their parent node.
+///
+/// Below is an example of an (unoptimized) query plan:
+///
+/// SELECT title, released, genres.name AS genre
+/// FROM movies INNER JOIN genres ON movies.genre_id = genres.id
+/// WHERE released >= 2000 ORDER BY released
+///
+/// Order: movies.released desc
+/// └─ Projection: movies.title, movies.released, genres.name as genre
+///    └─ Filter: movies.released >= 2000
+///       └─ NestedLoopJoin: inner on movies.genre_id = genres.id
+///          ├─ Scan: movies
+///          └─ Scan: genres
+///
+/// Rows flow from the tree leaves to the root. The Scan nodes read and emit
+/// table rows from storage. They are passed to the NestedLoopJoin node which
+/// joins the rows from the two tables, then the Filter node discards old
+/// movies, the Projection node picks out the requested columns, and the Order
+/// node sorts them before emitting the rows to the client.
 pub fn execute(node: Node, txn: &impl Transaction) -> RaftDBResult<Rows> {
     Ok(match node {
         Node::Aggregate { source, group_by, aggregates } => {
             let source = execute(*source, txn)?;
-            aggregates::aggregate(source, group_by, aggregates)?
+            aggregate::aggregate(source, group_by, aggregates)?
         },
-        Node::Filter { .. } => {}
+        Node::Filter { source, predicate } => {
+            let source = execute(*source, txn)?;
+            transform::filter(source, predicate)
+        }
         Node::HashJoin { .. } => {}
         Node::IndexLookup { .. } => {}
         Node::KeyLookup { .. } => {}
