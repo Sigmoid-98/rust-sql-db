@@ -1,6 +1,7 @@
 //! Executes a `Plan` against a `sql::engine::Engine`.
 
-mod execute;
 mod aggregate;
-mod write;
+mod execute;
+mod join;
 mod transform;
+mod write;
