@@ -1,18 +1,8 @@
 use raft_db_common::RaftDBResult;
 use crate::engine::{Catalog, Transaction};
-use crate::execution::{aggregate, write};
+use crate::execution::{aggregate, join, source, transform, write};
 use crate::planner::{Node, Plan};
 use crate::types::{Label, Rows};
-
-/// A plan execution result.
-pub enum ExecutionResult {
-    CreateTable { name: String },
-    DropTable { name: String, existed: bool },
-    Delete { count: u64 },
-    Insert { count: u64 },
-    Update { count: u64 },
-    Select { rows: Rows, columns: Vec<Label>},
-}
 
 /// Executes a plan, returning an execution result.
 ///
@@ -38,9 +28,21 @@ pub fn execute_plan(
             let count = write::delete(txn, table, primary_key, source)?;
             ExecutionResult::Delete { count }
         },
-        Plan::Insert { table, column_map, source } => {}
-        Plan::Select(root) => {}
-        Plan::Update { table, primary_key, source, expressions } => {}
+        Plan::Insert { table, column_map, source } => {
+            let source = execute(source, txn)?;
+            let count = write::insert(txn, table, column_map, source)?;
+            ExecutionResult::Insert { count }
+        },
+        Plan::Select(root) => {
+            let columns = (0..root.columns()).map(|i| root.column_label(i)).collect();
+            let rows = execute(root, txn)?;
+            ExecutionResult::Select { rows, columns }
+        },
+        Plan::Update { table, primary_key, source, expressions } => {
+            let source = execute(source, txn)?;
+            let count = write::update(txn, table.name, primary_key, source, expressions)?;
+            ExecutionResult::Update { count }
+        },
     })
 }
 
@@ -74,21 +76,62 @@ pub fn execute(node: Node, txn: &impl Transaction) -> RaftDBResult<Rows> {
             let source = execute(*source, txn)?;
             aggregate::aggregate(source, group_by, aggregates)?
         },
+
         Node::Filter { source, predicate } => {
             let source = execute(*source, txn)?;
             transform::filter(source, predicate)
+        },
+        Node::HashJoin { left, left_column, right, right_column, outer } => {
+            let right_size = right.columns();
+            let left = execute(*left, txn)?;
+            let right = execute(*right, txn)?;
+            join::hash(left, left_column, right, right_column, right_size, outer)?
+        },
+        Node::IndexLookup { table, column, values, alias: _ } => {
+            let column = table.columns.into_iter().nth(column).expect("invalid column").name;
+            let table = table.name;
+            source::lookup_index(txn, table, column, values)?
+        },
+        Node::KeyLookup { table, keys, alias: _ } => source::lookup_key(txn, table.name, keys)?,
+        Node::Limit { source, limit } => {
+            let source = execute(*source, txn)?;
+            transform::limit(source, limit)
+        },
+        Node::NestedLoopJoin { left, right, predicate, outer } => {
+            let right_size = right.columns();
+            let left = execute(*left, txn)?;
+            let right = execute(*right, txn)?;
+            join::nested_loop(left, right, right_size, predicate, outer)?
+        },
+        Node::Nothing { .. } => source::nothing(),
+        Node::Offset { source, offset } => {
+            let source = execute(*source, txn)?;
+            transform::offset(source, offset)
+        },
+        Node::Order { source, key: orders } => {
+            let source = execute(*source, txn)?;
+            transform::order(source, orders)?
         }
-        Node::HashJoin { .. } => {}
-        Node::IndexLookup { .. } => {}
-        Node::KeyLookup { .. } => {}
-        Node::Limit { .. } => {}
-        Node::NestedLoopJoin { .. } => {}
-        Node::Nothing { .. } => {}
-        Node::Offset { .. } => {}
-        Node::Order { .. } => {}
-        Node::Projection { .. } => {}
-        Node::Remap { .. } => {}
-        Node::Scan { .. } => {}
-        Node::Values { .. } => {}
+        Node::Projection { source, expressions, aliases: _ } => {
+            let source = execute(*source, txn)?;
+            transform::project(source, expressions)
+        },
+        Node::Remap { source, targets } => {
+            let source = execute(*source, txn)?;
+            transform::remap(source, targets)
+        }
+        Node::Scan { table, filter, alias: _ } => source::scan(txn, table, filter)?,
+        Node::Values { rows } => source::values(rows),
     })
+}
+
+
+/// A plan execution result.
+pub enum ExecutionResult {
+    CreateTable { name: String },
+    DropTable { name: String, existed: bool },
+    Delete { count: u64 },
+    Insert { count: u64 },
+    Update { count: u64 },
+    Select { rows: Rows, columns: Vec<Label>},
 }
