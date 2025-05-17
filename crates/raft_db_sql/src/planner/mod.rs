@@ -4,5 +4,5 @@
 mod plan;
 mod planner;
 
-pub use plan::{Aggregate, Node, Plan};
+pub use plan::{Aggregate, Direction, Node, Plan};
 pub use planner::{Planner, Scope};

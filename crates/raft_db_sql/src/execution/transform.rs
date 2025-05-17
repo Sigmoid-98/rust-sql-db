@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use itertools::{Itertools as _, izip};
 use raft_db_common::{errinput, RaftDBResult};
-use crate::parser::ast::Direction;
+use crate::planner::{Direction};
 use crate::types::{Expression, Rows, Value};
 
 /// Filters the input rows (i.e. WHERE).
